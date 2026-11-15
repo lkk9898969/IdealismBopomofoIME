@@ -1,0 +1,4 @@
+# Keep LF everywhere (the sources are LF; the McBopomofo patch must apply byte for byte).
+* text=auto eol=lf
+*.ico binary
+*.png binary

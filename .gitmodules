@@ -1,0 +1,4 @@
+[submodule "third_party/McBopomofo"]
+	path = third_party/McBopomofo
+	url = https://github.com/openvanilla/McBopomofo.git
+	ignore = dirty

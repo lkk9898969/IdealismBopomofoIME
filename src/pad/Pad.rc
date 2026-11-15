@@ -1,0 +1,28 @@
+#include <windows.h>
+#include "Version.h"
+
+#pragma code_page(65001)
+
+1 ICON "../tip/zhuyin.ico"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION ZY_VERSION_MAJOR,ZY_VERSION_MINOR,ZY_VERSION_PATCH,0
+ PRODUCTVERSION ZY_VERSION_MAJOR,ZY_VERSION_MINOR,ZY_VERSION_PATCH,0
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040404b0"
+        BEGIN
+            VALUE "FileDescription", "微新注音整合器"
+            VALUE "FileVersion", ZY_VERSION_STRING
+            VALUE "ProductName", "微新注音"
+            VALUE "ProductVersion", ZY_VERSION_STRING
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0404, 1200
+    END
+END
