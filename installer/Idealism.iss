@@ -57,6 +57,7 @@ Source: "{#Root}\data\packs.txt"; DestDir: "{app}\{#Stamp}\data"; Flags: ignorev
 Source: "{#Root}\data\base.txt"; DestDir: "{app}\{#Stamp}\data"; Flags: ignoreversion uninsrestartdelete
 Source: "{#Root}\data\phrases.txt"; DestDir: "{app}\{#Stamp}\data"; Flags: ignoreversion uninsrestartdelete
 Source: "{#Root}\data\symbols.txt"; DestDir: "{app}\{#Stamp}\data"; Flags: ignoreversion uninsrestartdelete
+Source: "{#Root}\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 Source: "{#Root}\THIRD-PARTY-NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
