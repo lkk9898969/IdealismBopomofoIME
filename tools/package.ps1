@@ -1,11 +1,11 @@
-# Builds everything and makes the installer dist\Idealism-Setup-<version>.exe (Inno Setup 6).
+# Builds everything and makes the installer dist\IdealismBopomofo-Setup-<version>.exe (Inno Setup 6).
 # Usage: pwsh -NoProfile -File tools/package.ps1 [-SkipBuild]
-param([switch]$SkipBuild)
+param([switch]$SkipBuild, [string]$Generator = '')
 $ErrorActionPreference = 'Stop'
 $root = Resolve-Path (Join-Path $PSScriptRoot '..')
 
 if (-not $SkipBuild) {
-    & (Join-Path $PSScriptRoot 'build.ps1') -Config Release
+    & (Join-Path $PSScriptRoot 'build.ps1') -Config Release -Generator $Generator
     if ($LASTEXITCODE) { throw 'build failed' }
 }
 
@@ -22,4 +22,4 @@ if (-not $iscc) { throw 'Inno Setup 6 (ISCC.exe) not found' }
 
 & $iscc /Qp "/DAppVersion=$version" (Join-Path $root 'installer\Idealism.iss')
 if ($LASTEXITCODE) { throw 'ISCC failed' }
-Write-Output "Built: dist\Idealism-Setup-$version.exe"
+Write-Output "Built: dist\IdealismBopomofo-Setup-$version.exe"

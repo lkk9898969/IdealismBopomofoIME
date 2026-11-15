@@ -42,7 +42,7 @@ CloseApplications=no
 RestartApplications=no
 
 [Languages]
-Name: "cht"; MessagesFile: "compiler:Languages\ChineseTraditional.isl"
+Name: "cht"; MessagesFile: "Languages\ChineseTraditional.isl"
 
 [Messages]
 cht.ReadyLabel1=即將安裝微新注音 {#AppVersion}。

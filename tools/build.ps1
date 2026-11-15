@@ -1,15 +1,27 @@
 # Builds x64 and x86 (Win32) Release DLLs and runs the engine tests.
 # Usage: pwsh -NoProfile -File tools/build.ps1 [-Config Release|Debug]
-param([string]$Config = 'Release')
+# -Generator overrides the CMake generator (default: the newest Visual Studio found by vswhere,
+#  e.g. 'Visual Studio 18 2026' locally or 'Visual Studio 17 2022' on a GitHub runner).
+param([string]$Config = 'Release', [string]$Generator = '')
 $ErrorActionPreference = 'Stop'
 $root = Resolve-Path (Join-Path $PSScriptRoot '..')
 
-$cmake = (Get-Command cmake -ErrorAction SilentlyContinue).Source
-if (-not $cmake) {
-    $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-    $vs = & $vswhere -latest -products * -property installationPath
-    $cmake = Join-Path $vs 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
+$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+$vsArgs = @('-latest', '-products', '*', '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64')
+$vs = & $vswhere @vsArgs -property installationPath
+if (-not $vs) { throw 'Visual Studio with the C++ x86/x64 tools not found' }
+if (-not $Generator) {
+    $major = [int](((& $vswhere @vsArgs -property installationVersion) -split '\.')[0])
+    $Generator = switch ($major) {
+        18 { 'Visual Studio 18 2026' }
+        17 { 'Visual Studio 17 2022' }
+        default { throw "unsupported Visual Studio version $major" }
+    }
 }
+# Visual Studio's own CMake always knows its generator; a CMake on PATH may be older.
+$cmake = Join-Path $vs 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
+if (-not (Test-Path $cmake)) { $cmake = (Get-Command cmake -ErrorAction Stop).Source }
+Write-Output "Generator: $Generator ($cmake)"
 
 $dataDir = Join-Path $root 'data'
 if (-not (Test-Path (Join-Path $dataDir 'packs.txt'))) { & (Join-Path $PSScriptRoot 'build_data.ps1') }
@@ -18,7 +30,7 @@ $packFiles = @('packs.txt') + (Get-Content (Join-Path $dataDir 'packs.txt') -Enc
 
 foreach ($arch in 'x64', 'Win32') {
     $build = Join-Path $root "build\$arch"
-    & $cmake -S $root -B $build -G 'Visual Studio 18 2026' -A $arch
+    & $cmake -S $root -B $build -G $Generator -A $arch
     if ($LASTEXITCODE) { throw "configure $arch failed" }
     & $cmake --build $build --config $Config --parallel
     if ($LASTEXITCODE) { throw "build $arch failed" }

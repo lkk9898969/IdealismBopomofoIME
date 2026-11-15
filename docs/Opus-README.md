@@ -52,7 +52,7 @@
 
 ## 安裝
 
-執行 `Idealism-Setup-<版本>.exe`（需要系統管理員權限），然後在輸入法清單（Win+Space）選「微新注音」。
+執行 `IdealismBopomofo-Setup-<版本>.exe`（需要系統管理員權限），然後在輸入法清單（Win+Space）選「微新注音」。
 
 - 每次安裝都放進 `C:\Program Files\IdealismIME\<建置時間>\` 這個新資料夾，所以 3ds Max 等程式開著也可以直接更新；**已經開著的程式要重開才會用新版**（工作列的中／英按鈕屬於檔案總管：登出再登入，或重新啟動檔案總管）
 - 舊版資料夾會自動清掉；還在使用中的檔案在重新開機後刪除
@@ -76,9 +76,22 @@ pwsh -NoProfile -File tools/setup_third_party.ps1
 pwsh -NoProfile -File tools/package.ps1
 ```
 
-`setup_third_party.ps1` 取得小麥注音（git submodule）並套上 `patches/mcbopomofo-msvc.patch`。`package.ps1` 會先跑 `tools/build.ps1`：建置詞庫（`data\data.txt` 再拆成 `data\packs.txt` 和各詞庫包）、x64 和 x86 的 `IdealismTip.dll`、設定程式、整合器，並執行全部測試；再用 Inno Setup 做出 `dist\Idealism-Setup-<版本>.exe`。版本號在 `src/Version.h`。
+`setup_third_party.ps1` 取得小麥注音（git submodule）並套上 `patches/mcbopomofo-msvc.patch`。`package.ps1` 會先跑 `tools/build.ps1`：建置詞庫（`data\data.txt` 再拆成 `data\packs.txt` 和各詞庫包）、x64 和 x86 的 `IdealismTip.dll`、設定程式、整合器，並執行全部測試；再用 Inno Setup 做出 `dist\IdealismBopomofo-Setup-<版本>.exe`。版本號在 `src/Version.h`。
 
 開發中想直接裝剛編好的版本，也可以用系統管理員身分執行 `tools/install.ps1`／`tools/uninstall.ps1`。
+
+## CI 與發布
+
+GitHub Actions（`.github/workflows/build.yml`）在 GitHub 的 Windows 機器上（VS 2022）做和 `package.ps1` 一樣的事：取得小麥注音、建置詞庫、編譯 x64／x86、跑全部測試、做出安裝檔。
+
+- **每次 push 到 main 和每個 pull request**：建置並測試；做好的安裝檔可以在該次執行的 Artifacts 下載（`IdealismBopomofo-Setup`）
+- **發布新版**：
+  1. 改 `src/Version.h` 的版本號（例如 `1.0.1`）並 commit、push
+  2. 打上相同版本的 tag 並推上去：`git tag v1.0.1`、`git push origin v1.0.1`
+  3. CI 會檢查 tag 和 `Version.h` 一致，建置測試通過後建立一個**草稿** Release，附上安裝檔和 `SHA256SUMS.txt`，說明自動列出這段期間的 commit
+  4. 到 GitHub 的 Releases 頁面檢查、修改說明，再按 Publish 公開
+
+手寫辨識的測試需要繁體中文手寫辨識器，GitHub 的機器上沒有，會自動略過（`SKIP`）。安裝檔沒有程式碼簽章，下載的人執行時 Windows SmartScreen 會跳警告。
 
 ## 專案結構
 
@@ -90,7 +103,8 @@ src/pad/      輸入法整合器（Win32）：手寫辨識、符號表
 src/compat/   讓小麥注音引擎在 MSVC 編譯的空白 POSIX 標頭
 tests/        engine_test（引擎與學習）、tip_smoke（TSF 啟動／按鍵／停用／背景寫檔／UILess）、pad_test（手寫辨識）
 tools/        建置、打包（package.ps1）、詞庫建置與拆包（split_packs.py）、開發用安裝、圖示產生腳本
-installer/    Inno Setup 安裝腳本
+installer/    Inno Setup 安裝腳本（Languages/ 是 Inno Setup 的繁體中文語系檔）
+.github/      GitHub Actions：建置、測試、發布
 third_party/  McBopomofo（小麥注音，MIT）：Source/Engine、Source/Data
 patches/      對 McBopomofo 的修改（目前只有 MSVC 相容性修正）
 docs/         調查與設計文件
