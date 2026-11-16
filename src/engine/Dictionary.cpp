@@ -209,6 +209,7 @@ struct Dictionary::Snapshot {
     std::unordered_set<std::string> excludedPairs;     // reading + '\t' + value
     std::unordered_set<std::string> excludedValues;    // under every reading
     std::unordered_set<std::string> excludedReadings;  // readings with an excluded pair
+    ImeOptions options;
     bool loaded = false;
 
     bool Excluded(const std::string& reading, const std::string& value) const {
@@ -290,6 +291,9 @@ bool Dictionary::Reload() {
         s->packs.push_back(std::move(pack));
     }
     s->loaded = s->base && s->base->hasUnigrams(kProbeReading);
+    if (!settingsPath.empty())
+        s->options.enterCommitsBopomofo =
+            GetPrivateProfileIntW(kOptionsSection, kEnterCommitsBopomofoKey, 1, settingsPath.c_str()) != 0;
 
     if (!userDir_.empty()) {
         for (auto& e : phrase_file::Parse(DecodeText(ReadWholeFile(userPath)))) {
@@ -318,6 +322,11 @@ bool Dictionary::Reload() {
     }
     stamp_ = stamp;
     return true;
+}
+
+ImeOptions Dictionary::Options() {
+    auto s = Current();
+    return s ? s->options : ImeOptions{};
 }
 
 std::vector<Unigram> Dictionary::getUnigrams(const std::string& reading) {

@@ -2,6 +2,7 @@
 // so both go through ShouldEatKeyDown(), which has no side effects on the composer.
 #include "tip/TextService.h"
 
+#include "engine/EngineHost.h"
 #include "tip/Beep.h"
 
 namespace zy {
@@ -312,6 +313,7 @@ STDMETHODIMP TextService::OnKeyDown(ITfContext* ctx, WPARAM wParam, LPARAM, BOOL
             if (ch) Render(ctx, std::wstring(1, ch));
             return S_OK;
         }
+        composer_->SetEnterCommitsReading(EngineHost::Instance().EnterCommitsBopomofo());
         ComposeResult result = composer_->Feed(key);
         if (result.beep) PlayErrorBeep();  // returns at once; played on the thread pool
         Render(ctx, result.commit);

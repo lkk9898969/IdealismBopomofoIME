@@ -269,6 +269,13 @@ int main(int argc, char** argv) {
     zy::g_hInst = GetModuleHandleW(nullptr);
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     if (FAILED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED))) return 2;
+    // The TIP reads modifier keys with GetKeyState. Start from a clean key state for this thread,
+    // so that keys someone holds while the tests run (Ctrl, Alt, Shift, CapsLock) don't change
+    // what gets typed.
+    {
+        BYTE clean[256] = {};
+        SetKeyboardState(clean);
+    }
 
     // The TIP keeps the user's files under %APPDATA%\IdealismIME. Point it at a scratch folder, so
     // that what this test "learns" never reaches the real user's learning.txt.

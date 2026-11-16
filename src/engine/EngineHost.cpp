@@ -58,6 +58,7 @@ void EngineHost::EnsureLoaded(const std::wstring& dataDir, const std::wstring& u
     try {
         auto dictionary = std::make_shared<Dictionary>(dataDir, userDir);
         dictionary->Reload();  // maps the packs (cheap) and reads the small user files
+        enterCommitsBopomofo_ = dictionary->Options().enterCommitsBopomofo;
         if (dictionary->Loaded()) {
             dictionary_ = dictionary;
             lm_ = dictionary;
@@ -139,7 +140,10 @@ void EngineHost::RunSync() {
         dictionary = dictionary_;
     }
     // Packs turned on/off and phrases edited in the settings app take effect here.
-    if (dictionary) dictionary->Reload();
+    if (dictionary) {
+        dictionary->Reload();
+        enterCommitsBopomofo_ = dictionary->Options().enterCommitsBopomofo;
+    }
     if (learner) learner->Sync();
 }
 

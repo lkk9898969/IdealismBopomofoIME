@@ -21,6 +21,13 @@ inline constexpr wchar_t kSettingsFile[] = L"settings.ini";           // in %APP
 inline constexpr wchar_t kUserPhrasesFile[] = L"user-phrases.txt";    //   "
 inline constexpr wchar_t kExcludedPhrasesFile[] = L"excluded-phrases.txt";
 inline constexpr wchar_t kPacksSection[] = L"Packs";                  // settings.ini: <pack id>=0|1
+inline constexpr wchar_t kOptionsSection[] = L"Options";              // settings.ini: options below
+inline constexpr wchar_t kEnterCommitsBopomofoKey[] = L"EnterCommitsBopomofo";  // 1 (default) / 0
+
+// Options from settings.ini [Options].
+struct ImeOptions {
+    bool enterCommitsBopomofo = true;  // Enter with only a syllable typed types its Bopomofo
+};
 
 // One line of a phrase file: "詞 ㄘˊ" (value, then the reading; syllables joined by '-' or
 // spaces). In the exclusion file the reading may be left out: the word is then excluded under
@@ -74,6 +81,7 @@ public:
     bool hasUnigrams(const std::string& reading) override;
 
     bool IsExcluded(const std::string& reading, const std::string& value);
+    ImeOptions Options();
     std::vector<PackInfo> Packs();
     std::vector<PhraseEntry> UserPhrases();
     std::vector<PhraseEntry> ExcludedPhrases();

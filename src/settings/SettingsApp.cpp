@@ -32,7 +32,7 @@ constexpr wchar_t kTitle[] = L"微新注音設定";
 constexpr wchar_t kInstanceMutex[] = L"Local\\IdealismIME.Settings";
 constexpr int kUser = 0;
 constexpr int kExcluded = 1;
-constexpr int kPageCount = 4;
+constexpr int kPageCount = 5;
 
 // ---- State ----
 
@@ -601,8 +601,29 @@ std::vector<int> PageControls(int page) {
             for (int i = OFS_HINT; i <= OFS_EXPORT; ++i) ids.push_back(base + i);
             return ids;
         }
-        default:
+        case 3:
             return {IDC_LEARN_HINT, IDC_LEARN_SEARCH, IDC_LEARN_LIST, IDC_LEARN_FORGET, IDC_LEARN_TOUSER, IDC_LEARN_CLEAR};
+        default:
+            return {IDC_OPT_HINT, IDC_OPT_ENTER_BOPOMOFO};
+    }
+}
+
+// ---- Page 5: options (settings.ini [Options]) ----
+
+void FillOptions() {
+    const bool enter = GetPrivateProfileIntW(zy::kOptionsSection, zy::kEnterCommitsBopomofoKey, 1,
+                                             UserFile(zy::kSettingsFile).c_str()) != 0;
+    CheckDlgButton(g.dlg, IDC_OPT_ENTER_BOPOMOFO, enter ? BST_CHECKED : BST_UNCHECKED);
+}
+
+void OnOptionToggled(int id) {
+    const bool on = IsDlgButtonChecked(g.dlg, id) == BST_CHECKED;
+    zy::EnsureDirectory(g.userDir);
+    if (id == IDC_OPT_ENTER_BOPOMOFO) {
+        WritePrivateProfileStringW(zy::kOptionsSection, zy::kEnterCommitsBopomofoKey, on ? L"1" : L"0",
+                                   UserFile(zy::kSettingsFile).c_str());
+        Status(on ? L"已開啟：只打了注音時按 Enter 會輸出注音。切回打字的程式就會生效。"
+                  : L"已關閉：只打了注音時按 Enter 不會輸出任何字。切回打字的程式就會生效。");
     }
 }
 
@@ -618,9 +639,11 @@ void ShowPage(int page) {
         const int kind = page == 1 ? kUser : kExcluded;
         LoadList(kind);
         FillList(kind);
-    } else {
+    } else if (page == 3) {
         LoadLearning();
         FillLearning();
+    } else {
+        FillOptions();
     }
 }
 
@@ -635,7 +658,7 @@ void InitMainDialog(HWND hwnd) {
     SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(icon));
 
     HWND tab = GetDlgItem(hwnd, IDC_TAB);
-    const wchar_t* titles[kPageCount] = {L"詞庫包", L"自訂詞", L"排除詞", L"學習記錄"};
+    const wchar_t* titles[kPageCount] = {L"詞庫包", L"自訂詞", L"排除詞", L"學習記錄", L"選項"};
     for (int i = 0; i < kPageCount; ++i) {
         TCITEMW item = {};
         item.mask = TCIF_TEXT;
@@ -676,6 +699,8 @@ void InitMainDialog(HWND hwnd) {
     AddColumn(learn, 2, L"注音", 110);
     AddColumn(learn, 3, L"次數", 36);
     SendMessageW(GetDlgItem(hwnd, IDC_LEARN_SEARCH), EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"搜尋字詞或注音"));
+
+    SetDlgItemTextW(hwnd, IDC_OPT_HINT, L"輸入法的行為設定。改完切回打字的程式就會生效。");
 
     ShowPage(0);
     if (g.dataDir.empty() || !g.dict || !g.dict->Loaded())
@@ -736,6 +761,9 @@ INT_PTR CALLBACK MainDialogProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDC_LEARN_FORGET: OnForget(); break;
                 case IDC_LEARN_TOUSER: OnLearnedToUser(); break;
                 case IDC_LEARN_CLEAR: OnClearLearning(); break;
+                case IDC_OPT_ENTER_BOPOMOFO:
+                    if (code == BN_CLICKED) OnOptionToggled(id);
+                    break;
                 case IDC_OPEN_FOLDER:
                     zy::EnsureDirectory(g.userDir);
                     ShellExecuteW(hwnd, L"open", g.userDir.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
@@ -751,7 +779,7 @@ INT_PTR CALLBACK MainDialogProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             // The hints sit on the tab page, which is painted white.
             const int id = GetDlgCtrlID(reinterpret_cast<HWND>(lp));
             if (id == IDC_PACKS_HINT || id == IDC_USER_BASE + OFS_HINT || id == IDC_EXCL_BASE + OFS_HINT ||
-                id == IDC_LEARN_HINT) {
+                id == IDC_LEARN_HINT || id == IDC_OPT_HINT || id == IDC_OPT_ENTER_BOPOMOFO) {
                 HDC dc = reinterpret_cast<HDC>(wp);
                 SetBkColor(dc, GetSysColor(COLOR_WINDOW));
                 SetTextColor(dc, GetSysColor(COLOR_WINDOWTEXT));

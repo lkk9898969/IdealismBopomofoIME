@@ -43,6 +43,9 @@ BEGIN
     PUSHBUTTON      "改成自訂詞(&U)", IDC_LEARN_TOUSER, 320, 81, 64, 14
     PUSHBUTTON      "全部清除(&C)…", IDC_LEARN_CLEAR, 320, 109, 64, 14
 
+    LTEXT           "", IDC_OPT_HINT, 16, 26, 368, 18
+    AUTOCHECKBOX    "只打了注音（沒有其他字）時，按 Enter 直接輸出注音(&B)", IDC_OPT_ENTER_BOPOMOFO, 16, 50, 368, 12
+
     LTEXT           "", IDC_STATUS, 7, 262, 250, 10
     PUSHBUTTON      "開啟資料夾(&O)", IDC_OPEN_FOLDER, 264, 259, 66, 14
     PUSHBUTTON      "關閉", IDCANCEL, 336, 259, 57, 14

@@ -26,6 +26,8 @@ public:
     std::shared_ptr<Formosa::Gramambular2::LanguageModel> LanguageModel();
     UserModel* Learning();
     bool DictionaryLoaded();
+    // settings.ini [Options], as of the last reload. Lock-free (read on every key).
+    bool EnterCommitsBopomofo() const { return enterCommitsBopomofo_.load(std::memory_order_relaxed); }
 
     // Picks up what other programs learned meanwhile, and dictionary changes made in the settings app. Returns at once: the work runs on the
     // thread pool, at most once every couple of seconds.
@@ -47,6 +49,7 @@ private:
     std::unique_ptr<Learner> learner_;
     std::shared_ptr<Formosa::Gramambular2::LanguageModel> final_;  // learner's LM minus exclusions
 
+    std::atomic<bool> enterCommitsBopomofo_{true};
     std::atomic<bool> syncScheduled_{false};
     std::atomic<unsigned long long> lastRefreshTick_{0};
 };

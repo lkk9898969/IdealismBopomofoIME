@@ -87,6 +87,8 @@ public:
 
     // 全形 mode (Shift+Space): spaces, punctuation and letters are typed full-width.
     void SetFullWidth(bool on) { fullWidth_ = on; }
+    // Enter with only a syllable typed (nothing else in the buffer) types its Bopomofo (option).
+    void SetEnterCommitsReading(bool on) { enterCommitsReading_ = on; }
     bool FullWidth() const { return fullWidth_; }
 
     explicit Composer(std::shared_ptr<Formosa::Gramambular2::LanguageModel> lm, UserModel* userModel = nullptr);
@@ -168,6 +170,7 @@ private:
     bool symbolKeyboard_ = false;
     size_t symbolPage_ = 0;  // remembered between openings
     bool fullWidth_ = false;
+    bool enterCommitsReading_ = true;
 
     bool candidatesOpen_ = false;
     std::vector<CandidateItem> candidates_;

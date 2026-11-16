@@ -32,6 +32,10 @@
 #define IDC_LEARN_TOUSER 1304
 #define IDC_LEARN_CLEAR 1305
 
+// Page 5: options
+#define IDC_OPT_HINT 1400
+#define IDC_OPT_ENTER_BOPOMOFO 1401
+
 // Phrase dialog
 #define IDC_PH_VALUE 2001
 #define IDC_PH_READING 2002

@@ -265,6 +265,12 @@ static void TestDictionary(const std::wstring& dataDir) {
         Check(Pick(c, L"ㄏㄠˇ"), "pick the Bopomofo");
         CheckText(c.DisplayText(), L"你ㄏㄠˇ", "Bopomofo can be typed");
         CheckText(Type(c, "\n").commit, L"你ㄏㄠˇ", "and committed");
+        // Also for a first-tone syllable typed alone (支: ㄓ).
+        Type(c, "5 ");
+        Press(c, KeyKind::Down);
+        CheckText(c.CandidateText(c.CandidateCount() - 1), L"ㄓ", "ㄓ is the last candidate of 支");
+        Press(c, KeyKind::Escape);
+        Type(c, "\x1b");
         Type(c, "su3cl3");
         CheckText(c.DisplayText(), L"你好", "the Bopomofo never wins on its own");
     }
@@ -545,11 +551,24 @@ static void TestDictionary(const std::wstring& dataDir) {
         Check(r.beep, "invalid syllable beeps");
         CheckText(c.DisplayText(), L"大家ㄏㄧㄠˇ", "invalid syllable stays, and so does the sentence");
         Check(r.commit.empty(), "nothing is committed");
-        // Fixed by retyping it: the first symbol starts the syllable over.
-        r = Type(c, "cl3");
+        // Fixed by typing the wrong symbol again: it replaces its slot, the rest stays.
+        r = Type(c, "v");  // ㄒ
+        CheckText(c.DisplayText(), L"大家ㄒㄧㄠ", "ㄏ replaced by ㄒ, ㄧㄠ kept, tone cleared");
+        r = Type(c, "3");
         Check(!r.beep, "corrected syllable is accepted");
-        CheckText(c.DisplayText(), L"大家好", "retyped syllable replaces the mistake");
-        CheckText(Type(c, "\n").commit, L"大家好", "commit after the correction");
+        CheckText(c.DisplayText(), L"大家小", "corrected syllable replaces the mistake");
+        CheckText(Type(c, "\n").commit, L"大家小", "commit after the correction");
+    }
+    {
+        // Enter with only Bopomofo typed types it (option, on by default).
+        Composer c(lm);
+        CheckText(Type(c, "5\n").commit, L"ㄓ", "ㄓ Enter types ㄓ");
+        Check(c.Empty(), "and the buffer is empty");
+        CheckText(Type(c, "cul\n").commit, L"ㄏㄧㄠ", "any Bopomofo, even one that is no syllable");
+        CheckText(Type(c, "cl35\n").commit, L"好", "not with other text in the buffer: the syllable is dropped");
+        c.SetEnterCommitsReading(false);
+        CheckText(Type(c, "5\n").commit, L"", "option off: nothing is typed");
+        Check(c.Empty(), "option off: buffer cleared");
     }
     {
         // Fixed with Backspace (removes the tone first) or with another tone.
@@ -956,6 +975,11 @@ static void TestLayeredDictionary(const std::wstring& dataDir) {
         Type(c, "su3cl3");
         Check(CodePointCount(c.DisplayText()) == 2, "characters only still type");
     }
+    WriteFileReplace(user + L"\\settings.ini", "[Packs]\r\n");
+    d.Reload();
+    Check(d.Options().enterCommitsBopomofo, "Enter types Bopomofo by default");
+    WriteFileReplace(user + L"\\settings.ini", "[Packs]\r\n[Options]\r\nEnterCommitsBopomofo=0\r\n");
+    Check(d.Reload() && !d.Options().enterCommitsBopomofo, "option turned off in settings.ini");
     WriteFileReplace(user + L"\\settings.ini", "[Packs]\r\n");
     d.Reload();
     Check(d.hasUnigrams("ㄋㄧˇ-ㄏㄠˇ") && HasValue(d.getUnigrams("ㄅㄚ"), "⑧"), "packs back on");

@@ -61,9 +61,14 @@ public:
         if (IsLiteralReading(reading)) return {Unigram(reading.substr(sizeof(kLiteralPrefix) - 1), 0)};
         if (!IsCtrlReading(reading)) {
             auto out = base_->getUnigrams(reading);
-            if (!out.empty() && IsSyllableReading(reading) &&
-                std::none_of(out.begin(), out.end(), [&](const Unigram& u) { return u.value() == reading; }))
+            if (!out.empty() && IsSyllableReading(reading)) {
+                // Last, like Microsoft Bopomofo, even where the dictionary has it as a character of
+                // its own (ㄓ is listed under ㄓ, ranked among 支 之 知...).
+                out.erase(std::remove_if(out.begin(), out.end(),
+                                         [&](const Unigram& u) { return u.value() == reading; }),
+                          out.end());
                 out.emplace_back(reading, kBopomofoScore);
+            }
             return out;
         }
 
@@ -270,8 +275,9 @@ void Composer::FeedComposing(const Key& key, ComposeResult* r) {
     const bool hasReading = !reading_.Empty();
     switch (key.kind) {
         case KeyKind::Symbol:
-            // After a rejected syllable (it keeps its tone), typing a symbol starts it over.
-            if (reading_.Complete()) reading_.Clear();
+            // After a rejected syllable (it keeps its tone), a symbol replaces its own slot and
+            // the rest stays: ㄗㄨㄛ˙ then ㄓ gives ㄓㄨㄛ, ready for a tone again.
+            if (reading_.Complete()) reading_.tone = 0;
             reading_.Put(key.ch);
             break;
 
@@ -310,6 +316,9 @@ void Composer::FeedComposing(const Key& key, ComposeResult* r) {
 
         case KeyKind::Enter:
             r->commit = WalkText();
+            // Option (default on): Bopomofo typed on its own, with nothing else in the buffer,
+            // goes out as Bopomofo (ㄓ Enter types ㄓ).
+            if (enterCommitsReading_ && grid_.length() == 0 && hasReading) r->commit = reading_.ToString();
             if (userModel_ && grid_.length() > 0) userModel_->Commit(walk_);
             Clear();
             break;
