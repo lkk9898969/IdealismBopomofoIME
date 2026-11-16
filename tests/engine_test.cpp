@@ -64,6 +64,7 @@ static ComposeResult Type(Composer& c, const char* keys) {
         ComposeResult r = c.Feed(key);
         if (!r.commit.empty()) last.commit += r.commit;
         last.handled = r.handled;
+        last.beep = r.beep;  // of the last key
     }
     return last;
 }
@@ -132,7 +133,7 @@ static void TestEcho() {
     CheckText(r.commit, L"ㄓㄨㄥㄏㄠˇ", "echo: enter commits");
     Check(c.Empty(), "echo: empty after commit");
 
-    Check(!c.WouldHandle({KeyKind::Tone, kTone3}), "tone key passes through when empty");
+    Check(c.WouldHandle({KeyKind::Tone, kTone3}), "tone key alone types the tone mark");
     Check(!c.WouldHandle({KeyKind::Space}), "space passes through when empty");
     Check(!c.WouldHandle({KeyKind::Literal, L'A'}), "Shift+letter passes through when empty");
     Check(!c.WouldHandle({KeyKind::Punctuation, L'?'}), "Shift+/ passes through when empty (half-width ?)");
@@ -536,19 +537,70 @@ static void TestDictionary(const std::wstring& dataDir) {
         Check(c.Empty(), "empty after commit");
     }
     {
-        // Unknown syllables are dropped.
+        // No such syllable: kept as typed with a beep (like Microsoft Bopomofo), not dropped.
         Composer c(lm);
-        Type(c, "1j/");  // ㄅㄨㄥ does not exist
-        Type(c, " ");
-        Check(c.Empty(), "invalid syllable is rejected");
+        Type(c, "284ru8 ");  // 大家
+        CheckText(c.DisplayText(), L"大家", "before the mistake");
+        auto r = Type(c, "cul3");  // ㄏㄧㄠˇ does not exist
+        Check(r.beep, "invalid syllable beeps");
+        CheckText(c.DisplayText(), L"大家ㄏㄧㄠˇ", "invalid syllable stays, and so does the sentence");
+        Check(r.commit.empty(), "nothing is committed");
+        // Fixed by retyping it: the first symbol starts the syllable over.
+        r = Type(c, "cl3");
+        Check(!r.beep, "corrected syllable is accepted");
+        CheckText(c.DisplayText(), L"大家好", "retyped syllable replaces the mistake");
+        CheckText(Type(c, "\n").commit, L"大家好", "commit after the correction");
     }
     {
-        // Overflow: the head of a long buffer is committed automatically.
+        // Fixed with Backspace (removes the tone first) or with another tone.
+        Composer c(lm);
+        Check(Type(c, "1j/ ").beep, "ㄅㄨㄥ beeps");
+        CheckText(c.DisplayText(), L"ㄅㄨㄥ", "kept (1st tone has no mark)");
+        Type(c, "\b\b");
+        CheckText(c.DisplayText(), L"ㄅㄨ", "Backspace removes the tone, then ㄥ");
+        Check(!Type(c, "3").beep, "ㄅㄨˇ exists");
+        CheckText(c.DisplayText(), L"補", "now a character");
+        Check(Type(c, "su7").beep, "ㄋㄧ˙ beeps");
+        Check(!Type(c, "3").beep, "another tone retries");
+        CheckText(c.DisplayText(), L"補你", "ㄋㄧˇ");
+        Type(c, "cul3\x1b");
+        Check(c.Empty(), "Esc clears everything, the mistake included");
+    }
+    {
+        // A tone key alone types the tone mark (also on an empty buffer).
+        Composer c(lm);
+        Check(c.WouldHandle({KeyKind::Tone, kTone3}), "tone key is ours on an empty buffer");
+        Type(c, "3");
+        CheckText(c.DisplayText(), L"ˇ", "tone mark alone");
+        Type(c, "cl3467");
+        CheckText(c.DisplayText(), L"ˇ好ˋˊ˙", "tone marks after a syllable");
+        CheckText(Type(c, "\n").commit, L"ˇ好ˋˊ˙", "tone marks are committed");
+    }
+    {
+        // Long sentences are not cut short (only a runaway buffer is).
         Composer c(lm);
         std::wstring committed;
-        for (int i = 0; i < 25; ++i) committed += Type(c, "ji3").commit;
-        Check(!committed.empty(), "overflow commits the head");
+        for (int i = 0; i < 60; ++i) committed += Type(c, "ji3").commit;
+        Check(committed.empty(), "60 syllables stay in the buffer");
+        CheckText(std::to_wstring(c.DisplayText().size()), L"60", "all of them shown");
+        for (size_t i = 60; i < Composer::kMaxReadings + 5; ++i) committed += Type(c, "ji3").commit;
+        Check(!committed.empty(), "a runaway buffer commits its head");
         Check(c.DisplayText().size() <= Composer::kMaxReadings, "buffer stays within the limit");
+    }
+    {
+        // English mode while composing: the sentence stays, typing goes into it.
+        Composer c(lm);
+        Type(c, "284ru8 2");  // 大家 + half-typed ㄉ
+        c.EnterEnglishMode();
+        CheckText(c.DisplayText(), L"大家", "half-typed syllable dropped, sentence kept");
+        Check(!c.Empty(), "still composing");
+        for (wchar_t ch : std::wstring(L"Hi")) c.Feed({KeyKind::Literal, ch});
+        CheckText(c.DisplayText(), L"大家Hi", "English typed into the sentence");
+        Press(c, KeyKind::Home);
+        Press(c, KeyKind::Down);
+        Check(c.CandidatesOpen() && Has(c, L"大"), "Chinese part still has candidates");
+        Press(c, KeyKind::Escape);
+        CheckText(Press(c, KeyKind::Enter).commit, L"大家Hi", "commit all");
     }
 }
 

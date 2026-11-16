@@ -2,5 +2,6 @@
 * text=auto eol=lf
 *.ico binary
 *.png binary
+*.wav binary
 # Inno Setup translation, kept byte for byte as distributed
 *.isl -text

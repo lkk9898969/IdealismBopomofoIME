@@ -110,7 +110,12 @@ STDMETHODIMP TextService::OnChange(REFGUID) {
     try {
         const bool wasChinese = IsChineseMode();
         ReadModeFromCompartment();
-        if (wasChinese && !IsChineseMode() && composer_ && !composer_->Empty()) CommitAll(compositionContext_.Get());
+        if (wasChinese && !IsChineseMode() && composer_ && !composer_->Empty()) {
+            // The keyboard was closed: we stop taking keys, so the sentence goes to the document.
+            // Only switched to English: the sentence stays, as with Shift.
+            if (!keyboardOpen_) CommitAll(compositionContext_.Get());
+            else KeepSentenceInEnglishMode(compositionContext_.Get());
+        }
         if (langBarButton_) langBarButton_->Update();
     } catch (...) {
     }

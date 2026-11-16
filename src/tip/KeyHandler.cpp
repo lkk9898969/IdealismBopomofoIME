@@ -2,6 +2,8 @@
 // so both go through ShouldEatKeyDown(), which has no side effects on the composer.
 #include "tip/TextService.h"
 
+#include "tip/Beep.h"
+
 namespace zy {
 namespace {
 
@@ -125,9 +127,10 @@ bool TextService::TranslateKey(WPARAM vk, Key* out) const {
         return true;
     }
 
-    // Letters with CapsLock or Shift type English, like Microsoft Bopomofo.
-    if (vk >= 'A' && vk <= 'Z' && (shift || CapsLockOn())) {
-        const bool upper = shift != CapsLockOn();
+    // Shift+letter types English, like Microsoft Bopomofo: uppercase, or lowercase with CapsLock on.
+    // CapsLock alone changes nothing in Chinese mode (letters stay Bopomofo keys).
+    if (vk >= 'A' && vk <= 'Z' && shift) {
+        const bool upper = !CapsLockOn();
         *out = {KeyKind::Literal, static_cast<wchar_t>(upper ? vk : vk + 32)};
         return true;
     }
@@ -158,6 +161,24 @@ bool TextService::TranslateKey(WPARAM vk, Key* out) const {
     return true;
 }
 
+// English mode with a sentence still being composed (switched mid-sentence): keys that type
+// something type it as English into the sentence; editing keys, Enter and the candidate list
+// keep working as in Chinese mode.
+void TextService::TranslateEnglishKey(WPARAM vk, Key* out) const {
+    TranslateKey(vk, out);
+    switch (out->kind) {
+        case KeyKind::Symbol:
+        case KeyKind::Tone:
+        case KeyKind::Punctuation:
+        case KeyKind::SymbolPrefix:
+        case KeyKind::Literal:
+            if (wchar_t c = TypedChar(vk)) *out = {KeyKind::Literal, c, out->ascii};
+            break;
+        default:
+            break;
+    }
+}
+
 bool TextService::ShouldEatKeyDown(WPARAM vk) const {
     if (!composer_ || !keyboardOpen_ || IsModifierKey(vk)) return false;
     // Characters sent with SendInput (the IME pad, on-screen keyboards) are never ours.
@@ -166,7 +187,8 @@ bool TextService::ShouldEatKeyDown(WPARAM vk) const {
     // (the symbol keyboard), and only in Chinese mode, like Microsoft Bopomofo.
     if (KeyDown(VK_MENU)) return IsChineseMode() && KeyDown(VK_CONTROL) && vk == VK_OEM_COMMA;
 
-    const bool composing = IsChineseMode() && composer_->Composing();
+    // (Also in English mode: switching mid-sentence keeps the sentence, like Microsoft Bopomofo.)
+    const bool composing = composer_->Composing();
     if (KeyDown(VK_CONTROL)) {
         // Ctrl + symbol is full-width punctuation in both Chinese and English mode, like Microsoft
         // Bopomofo. Every other Ctrl shortcut (Ctrl+C!) is left untouched unless we are composing.
@@ -174,8 +196,9 @@ bool TextService::ShouldEatKeyDown(WPARAM vk) const {
         return composing;
     }
     if (vk == VK_SPACE && KeyDown(VK_SHIFT)) return true;  // Shift+Space: full/half width
-    // English mode: nothing is ours, except that 全形 mode types full-width characters.
-    if (!IsChineseMode()) return fullWidth_ && TypedChar(vk) != 0;
+    // English mode: nothing is ours, except that 全形 mode types full-width characters (and the
+    // sentence, if one is still being composed).
+    if (!IsChineseMode()) return composing || (fullWidth_ && TypedChar(vk) != 0);
     Key key;
     TranslateKey(vk, &key);
     return composer_->WouldHandle(key);
@@ -224,9 +247,17 @@ void TextService::ToggleChineseMode(ITfContext* ctx) {
         OpenKeyboard();
         return;
     }
-    if (chineseMode_ && composer_ && !composer_->Empty()) CommitAll(ctx ? ctx : compositionContext_.Get());
     chineseMode_ = !chineseMode_;
     SyncModeToCompartment();
+    if (!chineseMode_) KeepSentenceInEnglishMode(ctx);
+}
+
+// Switched to English while composing: like Microsoft Bopomofo the sentence stays (English then
+// types into it); only a half-typed syllable / the symbol keyboard go away.
+void TextService::KeepSentenceInEnglishMode(ITfContext* ctx) {
+    if (!composer_ || composer_->Empty()) return;
+    composer_->EnterEnglishMode();
+    Render(ctx ? ctx : compositionContext_.Get(), std::wstring());
 }
 
 void TextService::ToggleFullWidth() {
@@ -267,15 +298,22 @@ STDMETHODIMP TextService::OnKeyDown(ITfContext* ctx, WPARAM wParam, LPARAM, BOOL
             ToggleFullWidth();
             return S_OK;
         }
+        if (!IsChineseMode() && composer_->Composing()) {
+            TranslateEnglishKey(wParam, &key);
+            ComposeResult result = composer_->Feed(key);
+            Render(ctx, result.commit);
+            return S_OK;
+        }
         TranslateKey(wParam, &key);
         if (!IsChineseMode()) {
-            // English mode has no composing buffer: text goes straight into the document.
+            // English mode with nothing composed: text goes straight into the document.
             const wchar_t ch = key.kind == KeyKind::CtrlPunctuation ? Composer::FullWidthSymbol(key.ch)
                                                                     : Composer::FullWidthChar(TypedChar(wParam));
             if (ch) Render(ctx, std::wstring(1, ch));
             return S_OK;
         }
         ComposeResult result = composer_->Feed(key);
+        if (result.beep) PlayErrorBeep();  // returns at once; played on the thread pool
         Render(ctx, result.commit);
     } catch (...) {
         ResetComposer();

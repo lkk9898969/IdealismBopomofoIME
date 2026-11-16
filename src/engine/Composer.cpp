@@ -169,6 +169,14 @@ void Composer::Clear() {
     candidates_.clear();
 }
 
+void Composer::EnterEnglishMode() {
+    reading_.Clear();
+    prefix_ = Prefix::None;
+    code_.clear();
+    symbolKeyboard_ = false;
+    cycling_ = false;
+}
+
 std::wstring Composer::TakeCommitText() {
     std::wstring text = WalkText();
     if (userModel_ && grid_.length() > 0) userModel_->Commit(walk_);
@@ -214,6 +222,7 @@ bool Composer::WouldHandle(const Key& key) const {
     if (candidatesOpen_ || Composing()) return true;  // while composing, every key is ours
     switch (key.kind) {
         case KeyKind::Symbol:
+        case KeyKind::Tone:  // a tone key alone types the tone mark, like Microsoft Bopomofo
         case KeyKind::SymbolPrefix:
             return true;
         case KeyKind::CtrlPunctuation: return FullWidthSymbol(key.ch) != 0;
@@ -224,7 +233,7 @@ bool Composer::WouldHandle(const Key& key) const {
         case KeyKind::Literal:
             return fullWidth_ && FullWidthChar(key.ch) != 0;
         case KeyKind::Space: return fullWidth_;
-        // Tone keys, digits etc. pass through on an empty buffer so they type normally.
+        // Digits etc. pass through on an empty buffer so they type normally.
         default: return false;
     }
 }
@@ -261,6 +270,8 @@ void Composer::FeedComposing(const Key& key, ComposeResult* r) {
     const bool hasReading = !reading_.Empty();
     switch (key.kind) {
         case KeyKind::Symbol:
+            // After a rejected syllable (it keeps its tone), typing a symbol starts it over.
+            if (reading_.Complete()) reading_.Clear();
             reading_.Put(key.ch);
             break;
 
@@ -272,9 +283,16 @@ void Composer::FeedComposing(const Key& key, ComposeResult* r) {
         case KeyKind::Space:
             if (reading_.HasPhonetic()) {
                 reading_.tone = key.kind == KeyKind::Space ? kTone1 : key.ch;
-                // Unknown syllables (no dictionary entry) are dropped, like Microsoft Bopomofo.
-                InsertReading(WideToUtf8(reading_.ToString()));
-                reading_.Clear();
+                if (InsertReading(WideToUtf8(reading_.ToString()))) {
+                    reading_.Clear();
+                } else {
+                    // No such syllable (ㄏㄧㄠˇ): like Microsoft Bopomofo, keep it as typed and beep,
+                    // so it can be fixed (Backspace, another tone, or retyping the symbols).
+                    r->beep = true;
+                }
+            } else if (key.kind == KeyKind::Tone) {
+                // A tone key alone types the tone mark itself (ˊˇˋ˙), into the sentence.
+                InsertReading(std::string(kLiteralPrefix) + WideToUtf8(std::wstring(1, key.ch)));
             } else if (key.kind == KeyKind::Space && !hasReading) {
                 // Space types a space (kept in the buffer); only Down opens the candidate list.
                 TypeLiteral(L' ', r);

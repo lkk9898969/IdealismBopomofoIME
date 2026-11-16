@@ -75,6 +75,7 @@ public:
     // Used by the language bar button
     bool IsChineseMode() const;
     void ToggleChineseMode(ITfContext* ctx);
+    void KeepSentenceInEnglishMode(ITfContext* ctx);
     void OpenKeyboard();  // reopen after the app closed the keyboard; Chinese mode
     bool IsFullWidth() const { return fullWidth_; }
     void ToggleFullWidth();
@@ -96,6 +97,7 @@ private:
 
     // KeyHandler.cpp
     bool TranslateKey(WPARAM vk, Key* out) const;
+    void TranslateEnglishKey(WPARAM vk, Key* out) const;
     bool ShouldEatKeyDown(WPARAM vk) const;
     void TrackShiftDown(WPARAM vk);
     void HandleShiftUp(ITfContext* ctx, WPARAM vk);

@@ -46,6 +46,7 @@ struct Key {
 struct ComposeResult {
     bool handled = false;  // false = the key is not ours; let the app have it
     std::wstring commit;   // text to commit to the document before showing the new composition
+    bool beep = false;     // the key was a mistake (no such syllable): the TIP beeps, like Microsoft Bopomofo
 };
 
 // Learning hook. The TIP plugs in a process-wide, thread-safe implementation.
@@ -66,7 +67,9 @@ public:
 // the most likely sentence (整句選字), plus the candidate list state.
 class Composer {
 public:
-    static constexpr size_t kMaxReadings = 20;  // longer buffers auto-commit their head
+    // Microsoft Bopomofo has no practical limit; this only guards against runaway input (a stuck
+    // key). Longer buffers auto-commit their head.
+    static constexpr size_t kMaxReadings = 200;
     static constexpr size_t kCandidatesPerPage = 9;
     static constexpr size_t kExpandedColumns = 8;  // pages shown side by side in table view
 
@@ -96,6 +99,9 @@ public:
     // Text is being composed (the symbol keyboard alone does not count).
     bool Composing() const { return grid_.length() != 0 || !reading_.Empty() || prefix_ != Prefix::None; }
     void Clear();
+    // Switched to English mode while composing: the sentence stays (keys then type English into
+    // it, see the TIP), but a half-typed syllable, a ` prefix and the symbol keyboard are dropped.
+    void EnterEnglishMode();
     // Returns the converted text (without an unfinished syllable) and clears the buffer.
     std::wstring TakeCommitText();
 

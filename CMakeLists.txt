@@ -58,8 +58,9 @@ add_library(idealism_tip_core OBJECT
     src/tip/CandidateWindow.cpp
     src/tip/CandidateUI.cpp
     src/tip/LangBarButton.cpp
+    src/tip/Beep.cpp
 )
-target_link_libraries(idealism_tip_core PUBLIC idealism_engine ole32 oleaut32 advapi32 user32 gdi32 uuid)
+target_link_libraries(idealism_tip_core PUBLIC idealism_engine ole32 oleaut32 advapi32 user32 gdi32 uuid winmm)
 target_compile_options(idealism_tip_core PRIVATE /W4)
 
 # ---- TSF text service DLL ----
@@ -68,7 +69,9 @@ add_library(IdealismTip SHARED
     src/tip/IdealismTip.def
     src/tip/IdealismTip.rc
 )
-target_link_libraries(IdealismTip PRIVATE idealism_tip_core)
+target_link_libraries(IdealismTip PRIVATE idealism_tip_core delayimp)
+# winmm (the error beep) loads only when the first beep plays.
+target_link_options(IdealismTip PRIVATE /DELAYLOAD:winmm.dll)
 target_compile_options(IdealismTip PRIVATE /W4)
 
 # ---- TIP smoke test: activate/deactivate against a real TSF thread manager, feed keys ----

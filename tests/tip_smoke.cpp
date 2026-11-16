@@ -217,6 +217,45 @@ static void RunKeySequences() {
     type({VK_OEM_3, 'B', 'A', '4', '4', '0'});
     Check(service->CommittedForTesting() == L"\x4E00\x4E00", "` B A440 commits 一");
 
+    // Shift to English mid-sentence keeps the sentence; English is typed into it (CapsLock off).
+    if (!(GetKeyState(VK_CAPITAL) & 1)) {
+        type({'2', '8', '4', '5'});  // 大 + half-typed ㄓ
+        type({VK_SHIFT});
+        Check(service->DisplayForTesting() == L"\x5927", "English mode keeps the sentence, drops ㄓ");
+        type({'H', 'I', VK_SPACE, '3'});
+        Check(service->DisplayForTesting() == L"\x5927hi 3", "English typed into the sentence");
+        type({VK_RETURN});
+        Check(service->CommittedForTesting() == L"\x4E00\x4E00\x5927hi 3", "Enter commits all of it");
+        type({VK_SHIFT, '3', VK_RETURN});  // back to Chinese: a tone key alone types the mark
+        Check(service->CommittedForTesting() == L"\x4E00\x4E00\x5927hi 3\x02C7", "tone mark alone");
+    }
+
+    // CapsLock does not change Chinese input; it only makes Shift+letter lowercase (this thread's
+    // key state, which is what the TIP reads).
+    {
+        BYTE saved[256] = {};
+        GetKeyboardState(saved);
+        auto setState = [&](bool caps, bool shift) {
+            BYTE state[256];
+            memcpy(state, saved, sizeof(state));
+            state[VK_CAPITAL] = caps ? 1 : 0;
+            state[VK_SHIFT] = state[VK_LSHIFT] = shift ? 0x80 : 0;
+            SetKeyboardState(state);
+        };
+        const std::wstring before = service->CommittedForTesting();
+        setState(true, false);
+        type({'2', '8', '4'});
+        setState(true, true);
+        type({'A'});
+        setState(true, false);
+        type({'C', 'L', '3', VK_RETURN});
+        setState(false, true);
+        type({'A', VK_RETURN});  // without CapsLock, Shift+A on an empty buffer is the app's 'A'
+        SetKeyboardState(saved);
+        Check(service->CommittedForTesting() == before + L"\x5927" L"a" L"\x597D",
+              "CapsLock: Bopomofo still typed, Shift+A is lowercase");
+    }
+
     tip->Deactivate();
     keys.Reset();
     tip.Reset();
