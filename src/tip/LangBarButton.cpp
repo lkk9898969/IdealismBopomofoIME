@@ -19,27 +19,64 @@ constexpr int IDI_MODE_EN = 103;
 constexpr int IDI_MODE_ZH_FULL = 104;  // 全形 variants
 constexpr int IDI_MODE_EN_FULL = 105;
 
-// Starts the IME pad (<root>\IdealismPad.exe, next to the x64/x86 folders; it has a button for the
-// settings), or the settings app if the pad is missing. Returns at once: nothing here waits for
-// it, so the host app is never held up.
-void LaunchPad() {
+// Starts one of our programs, which sit in <root>, next to the x64/x86 folders with the DLLs.
+// Returns at once: nothing here waits for it, so the host app is never held up.
+bool Launch(const wchar_t* exeName) {
     wchar_t path[MAX_PATH] = {};
     const DWORD len = GetModuleFileNameW(g_hInst, path, ARRAYSIZE(path));
     std::wstring dir(path, len);
     dir = dir.substr(0, dir.find_last_of(L'\\'));
-    for (const wchar_t* rel : {L"\\..\\IdealismPad.exe", L"\\IdealismPad.exe", L"\\..\\IdealismSettings.exe",
-                               L"\\IdealismSettings.exe"}) {
-        std::wstring exe = dir + rel;
+    for (const wchar_t* rel : {L"\\..\\", L"\\"}) {
+        std::wstring exe = dir + rel + exeName;
         if (GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES) continue;
         std::wstring cmd = L"\"" + exe + L"\"";
         STARTUPINFOW si = {sizeof(si)};
         PROCESS_INFORMATION pi = {};
-        if (CreateProcessW(exe.c_str(), cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
-            CloseHandle(pi.hThread);
-            CloseHandle(pi.hProcess);
-        }
+        if (!CreateProcessW(exe.c_str(), cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi))
+            return false;
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        return true;
+    }
+    return false;
+}
+
+void LaunchPad() {
+    if (!Launch(L"IdealismPad.exe")) Launch(L"IdealismSettings.exe");
+}
+
+enum MenuCommand : UINT { kMenuPad = 1, kMenuSettings = 2 };
+
+// Right click on the 中/英 button: a small menu (輸入法整合器, 設定), shown by the thread the IME
+// runs on — the app's UI thread, where TSF delivers the click. The menu is owned by the app's own
+// focus window and returns the choice (TPM_RETURNCMD | TPM_NONOTIFY), so the app never receives a
+// command from it. Without a window to own it, the pad opens directly, as before.
+void ShowMenu() {
+    HWND owner = GetFocus();
+    if (!owner) owner = GetActiveWindow();
+    if (!owner) {
+        LaunchPad();
         return;
     }
+    HMENU menu = CreatePopupMenu();
+    if (!menu) {
+        LaunchPad();
+        return;
+    }
+    AppendMenuW(menu, MF_STRING, kMenuPad, L"輸入法整合器(&P)");
+    AppendMenuW(menu, MF_STRING, kMenuSettings, L"設定(&S)");
+    POINT pt = {};
+    GetCursorPos(&pt);
+    // The menu closes on a click elsewhere only if its owner is in the foreground (the taskbar may
+    // have taken it with the click). This is the app's own window, so nothing else is disturbed.
+    SetForegroundWindow(GetAncestor(owner, GA_ROOT));
+    const UINT command = static_cast<UINT>(TrackPopupMenuEx(
+        menu, TPM_RIGHTBUTTON | TPM_NONOTIFY | TPM_RETURNCMD | TPM_BOTTOMALIGN | TPM_LEFTALIGN, pt.x, pt.y, owner,
+        nullptr));
+    PostMessageW(owner, WM_NULL, 0, 0);  // lets the menu close properly (KB135788)
+    DestroyMenu(menu);
+    if (command == kMenuPad) LaunchPad();
+    else if (command == kMenuSettings) Launch(L"IdealismSettings.exe");
 }
 
 }  // namespace
@@ -97,17 +134,17 @@ STDMETHODIMP LangBarButton::Show(BOOL) { return E_NOTIMPL; }
 
 STDMETHODIMP LangBarButton::GetTooltipString(BSTR* tooltip) {
     if (!tooltip) return E_INVALIDARG;
-    const wchar_t* text = Chinese() ? (FullWidth() ? L"中文模式・全形（Shift 切換中／英，Shift+Space 切換全／半形；按右鍵開輸入法整合器）"
-                                                   : L"中文模式・半形（Shift 切換中／英，Shift+Space 切換全／半形；按右鍵開輸入法整合器）")
-                                    : (FullWidth() ? L"英文模式・全形（Shift 切換中／英，Shift+Space 切換全／半形；按右鍵開輸入法整合器）"
-                                                   : L"英文模式・半形（Shift 切換中／英，Shift+Space 切換全／半形；按右鍵開輸入法整合器）");
+    const wchar_t* text = Chinese() ? (FullWidth() ? L"中文模式・全形（Shift 切換中／英，Shift+Space 切換全／半形；按右鍵開選單）"
+                                                   : L"中文模式・半形（Shift 切換中／英，Shift+Space 切換全／半形；按右鍵開選單）")
+                                    : (FullWidth() ? L"英文模式・全形（Shift 切換中／英，Shift+Space 切換全／半形；按右鍵開選單）"
+                                                   : L"英文模式・半形（Shift 切換中／英，Shift+Space 切換全／半形；按右鍵開選單）");
     *tooltip = SysAllocString(text);
     return *tooltip ? S_OK : E_OUTOFMEMORY;
 }
 
 STDMETHODIMP LangBarButton::OnClick(TfLBIClick click, POINT, const RECT*) {
     if (click == TF_LBI_CLK_LEFT && owner_) owner_->ToggleChineseMode(nullptr);
-    else if (click == TF_LBI_CLK_RIGHT) LaunchPad();  // 輸入法整合器（手寫、符號、設定）
+    else if (click == TF_LBI_CLK_RIGHT) ShowMenu();  // 輸入法整合器, 設定
     return S_OK;
 }
 
