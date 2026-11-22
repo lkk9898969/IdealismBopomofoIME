@@ -213,9 +213,12 @@ static void RunKeySequences() {
     type({VK_OEM_3, 'U', '4', 'E', '0', '0'});
     Check(service->DisplayForTesting() == L"\xFF40U4E00", "` U 4E00 is shown while typing");
     type({VK_SPACE});
-    Check(service->CommittedForTesting() == L"\x4E00", "` U 4E00 Space commits 一");
+    Check(service->DisplayForTesting() == L"\x4E00", "` U 4E00 Space types 一 into the sentence");
     type({VK_OEM_3, 'B', 'A', '4', '4', '0'});
-    Check(service->CommittedForTesting() == L"\x4E00\x4E00", "` B A440 commits 一");
+    Check(service->DisplayForTesting() == L"\x4E00\x4E00", "` B A440 types 一 too");
+    Check(service->CommittedForTesting().empty(), "both still composing");
+    type({VK_RETURN});
+    Check(service->CommittedForTesting() == L"\x4E00\x4E00", "Enter commits them");
 
     // Shift to English mid-sentence keeps the sentence; English is typed into it (CapsLock off).
     if (!(GetKeyState(VK_CAPITAL) & 1)) {
@@ -228,6 +231,44 @@ static void RunKeySequences() {
         Check(service->CommittedForTesting() == L"\x4E00\x4E00\x5927hi 3", "Enter commits all of it");
         type({VK_SHIFT, '3', VK_RETURN});  // back to Chinese: a tone key alone types the mark
         Check(service->CommittedForTesting() == L"\x4E00\x4E00\x5927hi 3\x02C7", "tone mark alone");
+    }
+
+    // Ctrl+/ stays the app's (toggle comment); Ctrl+, still types ，.
+    {
+        BYTE saved[256] = {};
+        GetKeyboardState(saved);
+        BYTE state[256];
+        memcpy(state, saved, sizeof(state));
+        state[VK_CONTROL] = state[VK_LCONTROL] = 0x80;
+        SetKeyboardState(state);
+        BOOL eaten = TRUE;
+        keys->OnTestKeyDown(ctx.Get(), VK_OEM_2, 0, &eaten);
+        Check(!eaten, "Ctrl+/ is left to the app");
+        eaten = FALSE;
+        keys->OnTestKeyDown(ctx.Get(), VK_OEM_COMMA, 0, &eaten);
+        Check(eaten, "Ctrl+, is ours (full-width comma)");
+        SetKeyboardState(saved);
+
+        // Ctrl+V while composing is ours (pasted into the sentence: see engine_test; the real
+        // clipboard is left alone here). Other Ctrl shortcuts commit the sentence, then go to the app.
+        // With nothing composed, Ctrl+V is the app's.
+        SetKeyboardState(state);
+        eaten = TRUE;
+        keys->OnTestKeyDown(ctx.Get(), 'V', 0, &eaten);
+        Check(!eaten, "Ctrl+V with nothing composed is the app's");
+        const std::wstring before = service->CommittedForTesting();
+        SetKeyboardState(saved);
+        type({'2', '8', '4'});  // 大
+        SetKeyboardState(state);
+        eaten = FALSE;
+        keys->OnTestKeyDown(ctx.Get(), 'V', 0, &eaten);
+        Check(eaten, "Ctrl+V while composing is ours");
+        Check(service->DisplayForTesting() == L"\x5927", "the sentence is still being composed");
+        eaten = TRUE;
+        keys->OnTestKeyDown(ctx.Get(), 'Z', 0, &eaten);
+        Check(!eaten, "Ctrl+Z while composing goes to the app");
+        Check(service->CommittedForTesting() == before + L"\x5927", "after the sentence is committed");
+        SetKeyboardState(saved);
     }
 
     // CapsLock does not change Chinese input; it only makes Shift+letter lowercase (this thread's

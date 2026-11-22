@@ -99,6 +99,7 @@ private:
     bool TranslateKey(WPARAM vk, Key* out) const;
     void TranslateEnglishKey(WPARAM vk, Key* out) const;
     bool ShouldEatKeyDown(WPARAM vk) const;
+    void CommitBeforeAppShortcut(ITfContext* ctx, WPARAM vk);
     void TrackShiftDown(WPARAM vk);
     void HandleShiftUp(ITfContext* ctx, WPARAM vk);
     void ResetComposer();

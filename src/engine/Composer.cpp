@@ -384,11 +384,63 @@ void Composer::TypeChars(const std::wstring& text, ComposeResult* r) {
     InsertReading(std::string(kLiteralPrefix) + WideToUtf8(text));
 }
 
+ComposeResult Composer::Paste(const std::wstring& text) {
+    ComposeResult r;
+    r.handled = true;
+    cycling_ = false;
+    candidatesOpen_ = false;
+    expanded_ = false;
+    std::vector<std::wstring> chars;  // one code point each
+    for (size_t i = 0; i < text.size(); ++i) {
+        const wchar_t c = text[i];
+        if (c < 0x20 || c == 0x7F) continue;
+        if (c >= 0xD800 && c <= 0xDBFF && i + 1 < text.size() && text[i + 1] >= 0xDC00 && text[i + 1] <= 0xDFFF) {
+            chars.push_back(text.substr(i, 2));
+            ++i;
+        } else if (c < 0xD800 || c > 0xDFFF) {
+            chars.emplace_back(1, c);
+        }
+    }
+    if (chars.empty()) return r;
+    if (grid_.length() + chars.size() > kMaxReadings) {
+        // Too long to edit as a sentence: it all goes into the document, sentence first.
+        std::wstring all = WalkText();
+        if (userModel_ && grid_.length() > 0) userModel_->Commit(walk_);
+        for (const auto& ch : chars) all += ch;
+        Clear();
+        r.commit = std::move(all);
+        return r;
+    }
+    for (const auto& ch : chars) InsertReading(std::string(kLiteralPrefix) + WideToUtf8(ch));
+    return r;
+}
+
 // After ` : a symbol key types its full-width symbol, U starts a Unicode code, B a Big5 code.
 void Composer::FeedPrefix(const Key& key, ComposeResult* r) {
     const wchar_t a = key.ascii;
     if (prefix_ == Prefix::Symbol) {
         prefix_ = Prefix::None;  // any other key just cancels the prefix
+        code_.clear();
+        if (key.kind == KeyKind::SymbolPrefix) {
+            // `` types a half-width ` into the sentence (Microsoft Bopomofo types ｀).
+            InsertReading(std::string(kLiteralPrefix) + "`");
+            return;
+        }
+        if (key.kind == KeyKind::Space || key.kind == KeyKind::Enter) {
+            // ` then Space/Enter types the full-width ｀: straight into the document when it is all
+            // there is; otherwise into the sentence (Enter then commits the sentence too).
+            if (grid_.length() == 0) {
+                r->commit = L"｀";
+                return;
+            }
+            InsertReading(std::string(kLiteralPrefix) + WideToUtf8(L"｀"));
+            if (key.kind == KeyKind::Enter) {
+                r->commit = WalkText();
+                if (userModel_) userModel_->Commit(walk_);
+                Clear();
+            }
+            return;
+        }
         if (a == L'u' || a == L'U') prefix_ = Prefix::Unicode;
         else if (a == L'b' || a == L'B') prefix_ = Prefix::Big5;
         else if (FullWidthSymbol(a) != 0) InsertReading(std::string(kCtrlPrefix) + static_cast<char>(a));
@@ -416,7 +468,8 @@ void Composer::FeedPrefix(const Key& key, ComposeResult* r) {
             const std::wstring text = CodePointToWide(std::wcstoul(code_.c_str(), nullptr, 16));
             prefix_ = Prefix::None;
             code_.clear();
-            TypeChars(text, r);
+            // Into the sentence, which stays in composition (also when it was empty).
+            if (!text.empty()) InsertReading(std::string(kLiteralPrefix) + WideToUtf8(text));
         }
         return;
     }
@@ -427,7 +480,7 @@ void Composer::FeedPrefix(const Key& key, ComposeResult* r) {
     const std::wstring text = Big5ToWide(static_cast<unsigned>(std::wcstoul(code_.c_str(), nullptr, 16)));
     prefix_ = Prefix::None;
     code_.clear();
-    TypeChars(text, r);
+    if (!text.empty()) InsertReading(std::string(kLiteralPrefix) + WideToUtf8(text));
 }
 
 void Composer::FeedSymbolKeyboard(const Key& key, ComposeResult* r) {
@@ -573,8 +626,7 @@ bool Composer::CollectCandidates(std::vector<CandidateItem>* out, bool* outAtEnd
     }
     if (items.empty()) return false;
 
-    // Like Microsoft Bopomofo, the first candidate is always what the sentence shows there now;
-    // the rest keep their order (longer phrases first, each length by score, learning included).
+    // What the sentence shows at this position now (a word, or one character of it).
     std::string currentValue;
     size_t currentLength = 0;
     size_t nodeStart = 0;
@@ -599,10 +651,20 @@ bool Composer::CollectCandidates(std::vector<CandidateItem>* out, bool* outAtEnd
         }
         nodeStart += n;
     }
+    // Like Microsoft Bopomofo: words starting here come first (longest first, each length by
+    // score), then the characters. What the sentence shows now leads its group: a word shown now
+    // is the very first candidate; a character shown now is the first character, right after the
+    // words (在 in 在說: 在說 再說 … 在 再 …).
     auto current = std::find_if(items.begin(), items.end(), [&](const CandidateItem& item) {
         return item.length == currentLength && item.value == currentValue;
     });
-    if (current != items.end()) std::rotate(items.begin(), current, current + 1);
+    if (current != items.end()) {
+        const auto firstOfGroup =
+            current->length > 1 ? items.begin()
+                                : std::find_if(items.begin(), items.end(),
+                                               [](const CandidateItem& item) { return item.length == 1; });
+        std::rotate(firstOfGroup, current, current + 1);
+    }
     *out = std::move(items);
     *outAtEnd = atEnd;
     return true;

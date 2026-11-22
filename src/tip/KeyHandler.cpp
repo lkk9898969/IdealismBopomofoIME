@@ -4,6 +4,7 @@
 
 #include "engine/EngineHost.h"
 #include "tip/Beep.h"
+#include "tip/Clipboard.h"
 
 namespace zy {
 namespace {
@@ -66,10 +67,20 @@ wchar_t CtrlSymbolChar(WPARAM vk, bool shift) {
     if (vk >= 'A' && vk <= 'Z') return 0;
     if (vk >= '0' && vk <= '9' && !shift) return 0;
     const wchar_t c = UsLayoutChar(vk, shift);
-    return Composer::FullWidthSymbol(c) ? c : 0;
+    if (!Composer::FullWidthSymbol(c)) return 0;
+    // Each key can be turned off in the settings app (default: Ctrl+/ off, the comment shortcut
+    // of VS Code and most editors), and is then left to the app.
+    return EngineHost::Instance().CtrlSymbolEnabled(c) ? c : 0;
 }
 
 }  // namespace
+
+// Ctrl+V / Shift+Insert.
+bool IsPasteKey(WPARAM vk) {
+    if (KeyDown(VK_MENU)) return false;
+    const bool ctrl = KeyDown(VK_CONTROL), shift = KeyDown(VK_SHIFT);
+    return (ctrl && !shift && vk == 'V') || (shift && !ctrl && vk == VK_INSERT);
+}
 
 bool TextService::IsChineseMode() const { return keyboardOpen_ && chineseMode_; }
 
@@ -192,9 +203,12 @@ bool TextService::ShouldEatKeyDown(WPARAM vk) const {
     const bool composing = composer_->Composing();
     if (KeyDown(VK_CONTROL)) {
         // Ctrl + symbol is full-width punctuation in both Chinese and English mode, like Microsoft
-        // Bopomofo. Every other Ctrl shortcut (Ctrl+C!) is left untouched unless we are composing.
+        // Bopomofo; Ctrl+Delete in the candidate list forgets what was learned. Every other Ctrl
+        // shortcut (Ctrl+C, Ctrl+V...) is the app's — while composing, after the sentence has been
+        // committed (CommitBeforeAppShortcut).
         if (CtrlSymbolChar(vk, KeyDown(VK_SHIFT))) return true;
-        return composing;
+        if (composing && IsPasteKey(vk)) return true;  // pasted into the sentence
+        return composing && vk == VK_DELETE && composer_->CandidatesOpen();
     }
     if (vk == VK_SPACE && KeyDown(VK_SHIFT)) return true;  // Shift+Space: full/half width
     // English mode: nothing is ours, except that 全形 mode types full-width characters (and the
@@ -203,6 +217,18 @@ bool TextService::ShouldEatKeyDown(WPARAM vk) const {
     Key key;
     TranslateKey(vk, &key);
     return composer_->WouldHandle(key);
+}
+
+// A Ctrl shortcut that is the app's (Ctrl+V, Ctrl+Z, Ctrl+S...) pressed while composing: the
+// sentence goes into the document first, so that the app pastes / undoes / saves after it rather
+// than into the middle of a composition. Done in OnTestKeyDown as well as OnKeyDown: when the test
+// says "not ours", OnKeyDown is never called and the key goes straight to the app. Committing an
+// empty buffer does nothing, so running both is harmless.
+void TextService::CommitBeforeAppShortcut(ITfContext* ctx, WPARAM vk) {
+    if (!composer_ || !keyboardOpen_ || IsModifierKey(vk) || vk == VK_PACKET) return;
+    if (!composer_->Composing() || !KeyDown(VK_CONTROL) || KeyDown(VK_MENU)) return;
+    if (ShouldEatKeyDown(vk)) return;  // Ctrl+symbol, Ctrl+Delete in the list: ours
+    CommitAll(ctx ? ctx : compositionContext_.Get());
 }
 
 // The mouse buttons' toggle bits (bit 0 of GetKeyState flips on every press) plus "held now"
@@ -275,11 +301,12 @@ void TextService::ResetComposer() {
 
 STDMETHODIMP TextService::OnSetFocus(BOOL) { return S_OK; }
 
-STDMETHODIMP TextService::OnTestKeyDown(ITfContext*, WPARAM wParam, LPARAM, BOOL* eaten) {
+STDMETHODIMP TextService::OnTestKeyDown(ITfContext* ctx, WPARAM wParam, LPARAM, BOOL* eaten) {
     if (!eaten) return E_INVALIDARG;
     *eaten = FALSE;
     try {
         TrackShiftDown(wParam);
+        CommitBeforeAppShortcut(ctx, wParam);
         *eaten = ShouldEatKeyDown(wParam);
     } catch (...) {
         *eaten = FALSE;
@@ -292,11 +319,18 @@ STDMETHODIMP TextService::OnKeyDown(ITfContext* ctx, WPARAM wParam, LPARAM, BOOL
     *eaten = FALSE;
     try {
         TrackShiftDown(wParam);
+        CommitBeforeAppShortcut(ctx, wParam);
         if (!ShouldEatKeyDown(wParam)) return S_OK;
         *eaten = TRUE;
         Key key;
         if (!KeyDown(VK_CONTROL) && wParam == VK_SPACE && KeyDown(VK_SHIFT)) {
             ToggleFullWidth();
+            return S_OK;
+        }
+        if (composer_->Composing() && IsPasteKey(wParam)) {
+            // Like Microsoft Bopomofo: the text joins the sentence, which stays in composition.
+            std::wstring text;
+            if (ReadClipboardText(&text)) Render(ctx, composer_->Paste(text).commit);
             return S_OK;
         }
         if (!IsChineseMode() && composer_->Composing()) {

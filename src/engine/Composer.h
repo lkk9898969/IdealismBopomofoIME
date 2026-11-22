@@ -94,6 +94,10 @@ public:
     explicit Composer(std::shared_ptr<Formosa::Gramambular2::LanguageModel> lm, UserModel* userModel = nullptr);
 
     ComposeResult Feed(const Key& key);
+    // Ctrl+V while composing: the text joins the sentence at the caret as typed characters, and
+    // the sentence stays in composition (like Microsoft Bopomofo). Control characters (line
+    // breaks, tabs) are dropped. Text too long for the buffer is committed with the sentence.
+    ComposeResult Paste(const std::wstring& text);
     // Whether Feed(key) would consume the key. Side-effect free (used by OnTestKeyDown).
     bool WouldHandle(const Key& key) const;
 

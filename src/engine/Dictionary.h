@@ -7,6 +7,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "engine/CtrlSymbols.h"
 #include "gramambular2/language_model.h"
 
 namespace McBopomofo {
@@ -27,6 +28,7 @@ inline constexpr wchar_t kEnterCommitsBopomofoKey[] = L"EnterCommitsBopomofo";  
 // Options from settings.ini [Options].
 struct ImeOptions {
     bool enterCommitsBopomofo = true;  // Enter with only a syllable typed types its Bopomofo
+    CtrlSymbolSet ctrlSymbolsOff = ParseCtrlSymbolSet(kCtrlSymbolsOffDefault);  // Ctrl+symbol keys left to the app
 };
 
 // One line of a phrase file: "詞 ㄘˊ" (value, then the reading; syllables joined by '-' or

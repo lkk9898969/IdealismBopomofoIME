@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cwctype>
 #include <memory>
 #include <set>
 #include <string>
@@ -18,6 +19,7 @@
 #include <vector>
 
 #include "engine/Bopomofo.h"
+#include "engine/Composer.h"
 #include "engine/Dictionary.h"
 #include "engine/Files.h"
 #include "engine/Learner.h"
@@ -604,16 +606,90 @@ std::vector<int> PageControls(int page) {
         case 3:
             return {IDC_LEARN_HINT, IDC_LEARN_SEARCH, IDC_LEARN_LIST, IDC_LEARN_FORGET, IDC_LEARN_TOUSER, IDC_LEARN_CLEAR};
         default:
-            return {IDC_OPT_HINT, IDC_OPT_ENTER_BOPOMOFO};
+            return {IDC_OPT_HINT,        IDC_OPT_ENTER_BOPOMOFO, IDC_OPT_CTRL_HINT,   IDC_OPT_CTRL_SEARCH,
+                    IDC_OPT_CTRL_LIST,   IDC_OPT_CTRL_ALL,       IDC_OPT_CTRL_NONE,   IDC_OPT_CTRL_DEFAULT};
     }
 }
 
 // ---- Page 5: options (settings.ini [Options]) ----
 
+zy::CtrlSymbolSet g_ctrlOff;  // Ctrl+symbol keys turned off, as in settings.ini
+
+std::wstring LowerText(std::wstring s) {
+    for (auto& c : s) c = static_cast<wchar_t>(towlower(c));
+    return s;
+}
+
+// Shown rows: those matching the search (shortcut, symbol typed, name or output).
+void FillCtrlSymbols() {
+    HWND list = GetDlgItem(g.dlg, IDC_OPT_CTRL_LIST);
+    const std::wstring query = LowerText(GetText(GetDlgItem(g.dlg, IDC_OPT_CTRL_SEARCH)));
+    g.filling = true;
+    ListView_DeleteAllItems(list);
+    for (size_t i = 0; i < std::size(zy::kCtrlSymbolKeys); ++i) {
+        const auto& k = zy::kCtrlSymbolKeys[i];
+        const std::wstring shortcut = zy::CtrlSymbolShortcut(k);
+        const std::wstring typed(1, k.ascii);
+        const std::wstring output(1, zy::Composer::FullWidthSymbol(k.ascii));
+        if (!query.empty()) {
+            const std::wstring haystack = LowerText(shortcut + L"\t" + typed + L"\t" + k.name + L"\t" + output);
+            if (haystack.find(query) == std::wstring::npos) continue;
+        }
+        const int row = AddRow(list, {shortcut, typed, output, k.name}, static_cast<LPARAM>(i));
+        ListView_SetCheckState(list, row, !g_ctrlOff.test(static_cast<size_t>(k.ascii)));
+    }
+    g.filling = false;
+}
+
+void SaveCtrlSymbols(const std::wstring& note) {
+    zy::EnsureDirectory(g.userDir);
+    WritePrivateProfileStringW(zy::kOptionsSection, zy::kCtrlSymbolsOffKey, zy::FormatCtrlSymbolSet(g_ctrlOff).c_str(),
+                               UserFile(zy::kSettingsFile).c_str());
+    Status(note + L"切回打字的程式就會生效。");
+}
+
+void OnCtrlSymbolToggled(int row) {
+    HWND list = GetDlgItem(g.dlg, IDC_OPT_CTRL_LIST);
+    LVITEMW item = {};
+    item.mask = LVIF_PARAM;
+    item.iItem = row;
+    ListView_GetItem(list, &item);
+    if (item.lParam < 0 || static_cast<size_t>(item.lParam) >= std::size(zy::kCtrlSymbolKeys)) return;
+    const auto& k = zy::kCtrlSymbolKeys[static_cast<size_t>(item.lParam)];
+    const bool on = ListView_GetCheckState(list, row) != 0;
+    if (on == !g_ctrlOff.test(static_cast<size_t>(k.ascii))) return;
+    g_ctrlOff.set(static_cast<size_t>(k.ascii), !on);
+    const std::wstring output(1, zy::Composer::FullWidthSymbol(k.ascii));
+    SaveCtrlSymbols(zy::CtrlSymbolShortcut(k) + (on ? L" 會輸出「" + output + L"」。" : L" 交給程式處理。"));
+}
+
+// 全選 / 全不選 apply to the rows shown (all of them unless searching).
+void SetShownCtrlSymbols(bool on) {
+    HWND list = GetDlgItem(g.dlg, IDC_OPT_CTRL_LIST);
+    const int count = ListView_GetItemCount(list);
+    for (int row = 0; row < count; ++row) {
+        LVITEMW item = {};
+        item.mask = LVIF_PARAM;
+        item.iItem = row;
+        ListView_GetItem(list, &item);
+        if (item.lParam >= 0 && static_cast<size_t>(item.lParam) < std::size(zy::kCtrlSymbolKeys))
+            g_ctrlOff.set(static_cast<size_t>(zy::kCtrlSymbolKeys[static_cast<size_t>(item.lParam)].ascii), !on);
+    }
+    FillCtrlSymbols();
+    const bool all = count == static_cast<int>(std::size(zy::kCtrlSymbolKeys));
+    SaveCtrlSymbols(std::wstring(all ? L"全部" : L"列出的 ") + (all ? L"" : std::to_wstring(count) + L" 個") +
+                    (on ? L"都會輸出全形符號。" : L"都交給程式處理。"));
+}
+
 void FillOptions() {
-    const bool enter = GetPrivateProfileIntW(zy::kOptionsSection, zy::kEnterCommitsBopomofoKey, 1,
-                                             UserFile(zy::kSettingsFile).c_str()) != 0;
+    const std::wstring ini = UserFile(zy::kSettingsFile);
+    const bool enter = GetPrivateProfileIntW(zy::kOptionsSection, zy::kEnterCommitsBopomofoKey, 1, ini.c_str()) != 0;
     CheckDlgButton(g.dlg, IDC_OPT_ENTER_BOPOMOFO, enter ? BST_CHECKED : BST_UNCHECKED);
+    wchar_t off[512] = {};
+    GetPrivateProfileStringW(zy::kOptionsSection, zy::kCtrlSymbolsOffKey, zy::kCtrlSymbolsOffDefault, off,
+                             static_cast<DWORD>(std::size(off)), ini.c_str());
+    g_ctrlOff = zy::ParseCtrlSymbolSet(off);
+    FillCtrlSymbols();
 }
 
 void OnOptionToggled(int id) {
@@ -701,6 +777,17 @@ void InitMainDialog(HWND hwnd) {
     SendMessageW(GetDlgItem(hwnd, IDC_LEARN_SEARCH), EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"搜尋字詞或注音"));
 
     SetDlgItemTextW(hwnd, IDC_OPT_HINT, L"輸入法的行為設定。改完切回打字的程式就會生效。");
+    SetDlgItemTextW(hwnd, IDC_OPT_CTRL_HINT,
+                    L"Ctrl + 標點符號：勾選的會輸出全形符號（中英文模式都一樣）；不勾的交給程式，\n"
+                    L"例如 VS Code 的 Ctrl+/ 註解。全形符號也可以用 ` 加符號鍵輸入。");
+    HWND ctrlList = GetDlgItem(hwnd, IDC_OPT_CTRL_LIST);
+    SetupList(ctrlList, LVS_EX_CHECKBOXES);
+    AddColumn(ctrlList, 0, L"快速鍵", 92);
+    AddColumn(ctrlList, 1, L"按鍵", 30);
+    AddColumn(ctrlList, 2, L"輸出", 30);
+    AddColumn(ctrlList, 3, L"名稱", 120);
+    SendMessageW(GetDlgItem(hwnd, IDC_OPT_CTRL_SEARCH), EM_SETCUEBANNER, TRUE,
+                 reinterpret_cast<LPARAM>(L"搜尋快速鍵、符號或名稱"));
 
     ShowPage(0);
     if (g.dataDir.empty() || !g.dict || !g.dict->Loaded())
@@ -727,6 +814,11 @@ INT_PTR CALLBACK MainDialogProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 if ((nm->uChanged & LVIF_STATE) && ((nm->uNewState ^ nm->uOldState) & LVIS_STATEIMAGEMASK) &&
                     (nm->uOldState & LVIS_STATEIMAGEMASK))
                     OnPackToggled(nm->iItem);
+            } else if (hdr->idFrom == IDC_OPT_CTRL_LIST && hdr->code == LVN_ITEMCHANGED && !g.filling) {
+                const auto* nm = reinterpret_cast<const NMLISTVIEW*>(lp);
+                if ((nm->uChanged & LVIF_STATE) && ((nm->uNewState ^ nm->uOldState) & LVIS_STATEIMAGEMASK) &&
+                    (nm->uOldState & LVIS_STATEIMAGEMASK))
+                    OnCtrlSymbolToggled(nm->iItem);
             } else if (const int kind = KindOfControl(static_cast<int>(hdr->idFrom)); kind >= 0) {
                 if (hdr->code == NM_DBLCLK) OnEdit(kind);
                 else if (hdr->code == LVN_KEYDOWN && reinterpret_cast<const NMLVKEYDOWN*>(lp)->wVKey == VK_DELETE)
@@ -764,6 +856,16 @@ INT_PTR CALLBACK MainDialogProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDC_OPT_ENTER_BOPOMOFO:
                     if (code == BN_CLICKED) OnOptionToggled(id);
                     break;
+                case IDC_OPT_CTRL_SEARCH:
+                    if (code == EN_CHANGE) FillCtrlSymbols();
+                    break;
+                case IDC_OPT_CTRL_ALL: SetShownCtrlSymbols(true); break;
+                case IDC_OPT_CTRL_NONE: SetShownCtrlSymbols(false); break;
+                case IDC_OPT_CTRL_DEFAULT:
+                    g_ctrlOff = zy::ParseCtrlSymbolSet(zy::kCtrlSymbolsOffDefault);
+                    FillCtrlSymbols();
+                    SaveCtrlSymbols(L"已還原預設：只有 Ctrl+/ 交給程式。");
+                    break;
                 case IDC_OPEN_FOLDER:
                     zy::EnsureDirectory(g.userDir);
                     ShellExecuteW(hwnd, L"open", g.userDir.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
@@ -779,7 +881,8 @@ INT_PTR CALLBACK MainDialogProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             // The hints sit on the tab page, which is painted white.
             const int id = GetDlgCtrlID(reinterpret_cast<HWND>(lp));
             if (id == IDC_PACKS_HINT || id == IDC_USER_BASE + OFS_HINT || id == IDC_EXCL_BASE + OFS_HINT ||
-                id == IDC_LEARN_HINT || id == IDC_OPT_HINT || id == IDC_OPT_ENTER_BOPOMOFO) {
+                id == IDC_LEARN_HINT || id == IDC_OPT_HINT || id == IDC_OPT_ENTER_BOPOMOFO ||
+                id == IDC_OPT_CTRL_HINT) {
                 HDC dc = reinterpret_cast<HDC>(wp);
                 SetBkColor(dc, GetSysColor(COLOR_WINDOW));
                 SetTextColor(dc, GetSysColor(COLOR_WINDOWTEXT));

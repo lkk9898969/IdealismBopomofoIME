@@ -28,6 +28,12 @@ public:
     bool DictionaryLoaded();
     // settings.ini [Options], as of the last reload. Lock-free (read on every key).
     bool EnterCommitsBopomofo() const { return enterCommitsBopomofo_.load(std::memory_order_relaxed); }
+    // Whether Ctrl + this ASCII symbol types its full-width form (or is left to the app).
+    bool CtrlSymbolEnabled(wchar_t ascii) const {
+        if (ascii >= 128) return false;
+        const auto& bits = ascii < 64 ? ctrlSymbolsOffLo_ : ctrlSymbolsOffHi_;
+        return (bits.load(std::memory_order_relaxed) & (1ull << (ascii % 64))) == 0;
+    }
 
     // Picks up what other programs learned meanwhile, and dictionary changes made in the settings app. Returns at once: the work runs on the
     // thread pool, at most once every couple of seconds.
@@ -49,7 +55,10 @@ private:
     std::unique_ptr<Learner> learner_;
     std::shared_ptr<Formosa::Gramambular2::LanguageModel> final_;  // learner's LM minus exclusions
 
+    void ApplyOptions(const ImeOptions& options);
     std::atomic<bool> enterCommitsBopomofo_{true};
+    std::atomic<unsigned long long> ctrlSymbolsOffLo_{1ull << 0x2F};  // ASCII 0-63 (default: '/')
+    std::atomic<unsigned long long> ctrlSymbolsOffHi_{0};             // ASCII 64-127
     std::atomic<bool> syncScheduled_{false};
     std::atomic<unsigned long long> lastRefreshTick_{0};
 };

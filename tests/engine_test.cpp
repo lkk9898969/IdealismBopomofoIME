@@ -288,13 +288,29 @@ static void TestDictionary(const std::wstring& dataDir) {
         Check(Pick(c, L"妳"), "pick 妳");  // 妳|好
         Press(c, KeyKind::Home);
         Press(c, KeyKind::Down);
-        CheckText(c.CandidateText(0), L"妳", "a picked character comes first next time");
-        Check(Has(c, L"你") && c.CandidateText(1) != L"妳", "the others follow, without duplicates");
+        // Words starting here still come first (Microsoft Bopomofo), then the character shown now.
+        CheckText(c.CandidateText(0), L"你好", "words first, even when a character is shown");
+        size_t firstChar = 0;
+        while (firstChar < c.CandidateCount() && CodePointCount(c.CandidateText(firstChar)) > 1) ++firstChar;
+        Check(firstChar < c.CandidateCount() && c.CandidateText(firstChar) == L"妳",
+              "the picked character comes first among the characters");
+        size_t picks = 0;
+        for (size_t i = 0; i < c.CandidateCount(); ++i) picks += c.CandidateText(i) == L"妳";
+        Check(Has(c, L"你") && picks == 1, "the others follow, without duplicates");
         Press(c, KeyKind::Escape);
         Press(c, KeyKind::End);
         Type(c, "u ");  // 妳好一
         Press(c, KeyKind::Down);
         CheckText(c.CandidateText(0), c.DisplayText().substr(2), "caret at end: the last character first");
+    }
+    {
+        // 在說 shown as two characters: at 在, the words starting there (在說, 再說...) come before 在.
+        Composer c(lm);
+        Type(c, "y94gji ");  // ㄗㄞˋ ㄕㄨㄛ
+        Press(c, KeyKind::Home);
+        Press(c, KeyKind::Down);
+        Check(c.CandidateCount() > 0 && CodePointCount(c.CandidateText(0)) == 2, "a word is the first candidate");
+        Check(Has(c, L"再說"), "再說 is offered");
     }
     {
         // List view: Down past the last row turns the page; Space/PageDown/PageUp page too.
@@ -391,8 +407,10 @@ static void TestDictionary(const std::wstring& dataDir) {
         for (wchar_t ch : std::wstring(L"4e00")) key(ch);
         CheckText(c.DisplayText(), L"｀U4E00", "hex digits are shown");
         auto r = Press(c, KeyKind::Space);
-        CheckText(r.commit, L"一", "` U 4e00 Space -> 一 (committed straight away on an empty buffer)");
-        Check(c.Empty(), "nothing left");
+        Check(r.commit.empty(), "` U 4e00 Space commits nothing");
+        CheckText(c.DisplayText(), L"一", "` U 4e00 Space -> 一, still composing (also on an empty buffer)");
+        Press(c, KeyKind::Escape);
+        Check(c.Empty(), "nothing left after Esc");
 
         Type(c, "su3");
         Press(c, KeyKind::SymbolPrefix);
@@ -497,6 +515,29 @@ static void TestDictionary(const std::wstring& dataDir) {
         Press(c, KeyKind::SymbolPrefix);
         Press(c, KeyKind::Backspace);
         Check(c.Empty(), "cancelling the prefix on an empty buffer leaves nothing");
+    }
+    {
+        // `` types a half-width `, which stays in the sentence; ` alone then Space/Enter types ｀.
+        Composer c(lm);
+        Press(c, KeyKind::SymbolPrefix);
+        auto r = c.Feed({KeyKind::SymbolPrefix, 0, L'`'});
+        Check(r.commit.empty(), "`` commits nothing");
+        CheckText(c.DisplayText(), L"`", "`` -> half-width `, composing");
+        Type(c, "cl3");
+        Press(c, KeyKind::SymbolPrefix);
+        c.Feed({KeyKind::SymbolPrefix, 0, L'`'});
+        CheckText(c.DisplayText(), L"`好`", "`` in the middle of a sentence");
+        Press(c, KeyKind::SymbolPrefix);
+        Press(c, KeyKind::Space);
+        CheckText(c.DisplayText(), L"`好`｀", "` Space with a sentence: ｀ joins it");
+        Press(c, KeyKind::SymbolPrefix);
+        CheckText(Press(c, KeyKind::Enter).commit, L"`好`｀｀", "` Enter: ｀ joins, everything is committed");
+        Check(c.Empty(), "empty after the commit");
+        Press(c, KeyKind::SymbolPrefix);
+        CheckText(Press(c, KeyKind::Space).commit, L"｀", "` alone then Space types ｀");
+        Check(c.Empty(), "and nothing is left composing");
+        Press(c, KeyKind::SymbolPrefix);
+        CheckText(Press(c, KeyKind::Enter).commit, L"｀", "` alone then Enter types ｀");
     }
     {
         // 全形 mode: space, punctuation and letters are typed full-width, composing or not.
@@ -605,6 +646,26 @@ static void TestDictionary(const std::wstring& dataDir) {
         for (size_t i = 60; i < Composer::kMaxReadings + 5; ++i) committed += Type(c, "ji3").commit;
         Check(!committed.empty(), "a runaway buffer commits its head");
         Check(c.DisplayText().size() <= Composer::kMaxReadings, "buffer stays within the limit");
+    }
+    {
+        // Ctrl+V while composing: the text joins the sentence, which stays in composition.
+        Composer c(lm);
+        Type(c, "284ru8 ");  // 大家
+        Press(c, KeyKind::Left);
+        auto r = c.Paste(L"A\r\nb\t𠀀");
+        Check(r.handled && r.commit.empty(), "paste: nothing committed");
+        CheckText(c.DisplayText(), L"大Ab𠀀家", "pasted at the caret, control characters dropped");
+        Check(c.CaretOffset() == 5, "caret after the pasted text (𠀀 is two UTF-16 units)");
+        Press(c, KeyKind::Home);
+        Press(c, KeyKind::Down);
+        Check(c.CandidatesOpen() && Has(c, L"大"), "the Chinese part still has candidates");
+        Press(c, KeyKind::Escape);
+        CheckText(Press(c, KeyKind::Enter).commit, L"大Ab𠀀家", "commit all");
+        // Too long for the buffer: everything goes into the document.
+        Type(c, "284");
+        r = c.Paste(std::wstring(Composer::kMaxReadings, L'x'));
+        CheckText(r.commit, L"大" + std::wstring(Composer::kMaxReadings, L'x'), "long paste is committed");
+        Check(c.Empty(), "and nothing is left composing");
     }
     {
         // English mode while composing: the sentence stays, typing goes into it.
@@ -980,6 +1041,22 @@ static void TestLayeredDictionary(const std::wstring& dataDir) {
     Check(d.Options().enterCommitsBopomofo, "Enter types Bopomofo by default");
     WriteFileReplace(user + L"\\settings.ini", "[Packs]\r\n[Options]\r\nEnterCommitsBopomofo=0\r\n");
     Check(d.Reload() && !d.Options().enterCommitsBopomofo, "option turned off in settings.ini");
+    // Ctrl+symbol keys: default leaves Ctrl+/ to the app; the list in settings.ini replaces it.
+    Check(d.Options().ctrlSymbolsOff.test('/') && d.Options().ctrlSymbolsOff.count() == 1,
+          "Ctrl+symbol default: only Ctrl+/ off");
+    WriteFileReplace(user + L"\\settings.ini", "[Options]\r\nCtrlSymbolsOff=2C,5B,zz,7E\r\n");
+    d.Reload();
+    Check(d.Options().ctrlSymbolsOff.test(',') && d.Options().ctrlSymbolsOff.test('[') &&
+              d.Options().ctrlSymbolsOff.test('~') && !d.Options().ctrlSymbolsOff.test('/') &&
+              d.Options().ctrlSymbolsOff.count() == 3,
+          "Ctrl+symbol keys turned off as listed (bad items ignored)");
+    WriteFileReplace(user + L"\\settings.ini", "[Options]\r\nCtrlSymbolsOff=\r\n");
+    d.Reload();
+    Check(d.Options().ctrlSymbolsOff.none(), "empty list: every Ctrl+symbol key on");
+    CheckText(FormatCtrlSymbolSet(ParseCtrlSymbolSet(L"3F,2F,2c")), L"2C,2F,3F", "list round-trips (table order)");
+    Check(std::size(kCtrlSymbolKeys) == 32, "32 Ctrl+symbol keys");
+    for (const auto& k : kCtrlSymbolKeys)
+        Check(Composer::FullWidthSymbol(k.ascii) != 0, "every listed key has a full-width symbol");
     WriteFileReplace(user + L"\\settings.ini", "[Packs]\r\n");
     d.Reload();
     Check(d.hasUnigrams("ㄋㄧˇ-ㄏㄠˇ") && HasValue(d.getUnigrams("ㄅㄚ"), "⑧"), "packs back on");

@@ -291,9 +291,14 @@ bool Dictionary::Reload() {
         s->packs.push_back(std::move(pack));
     }
     s->loaded = s->base && s->base->hasUnigrams(kProbeReading);
-    if (!settingsPath.empty())
+    if (!settingsPath.empty()) {
         s->options.enterCommitsBopomofo =
             GetPrivateProfileIntW(kOptionsSection, kEnterCommitsBopomofoKey, 1, settingsPath.c_str()) != 0;
+        wchar_t off[512] = {};
+        GetPrivateProfileStringW(kOptionsSection, kCtrlSymbolsOffKey, kCtrlSymbolsOffDefault, off,
+                                 static_cast<DWORD>(std::size(off)), settingsPath.c_str());
+        s->options.ctrlSymbolsOff = ParseCtrlSymbolSet(off);
+    }
 
     if (!userDir_.empty()) {
         for (auto& e : phrase_file::Parse(DecodeText(ReadWholeFile(userPath)))) {

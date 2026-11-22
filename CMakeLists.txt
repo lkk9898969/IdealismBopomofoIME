@@ -59,6 +59,7 @@ add_library(idealism_tip_core OBJECT
     src/tip/CandidateUI.cpp
     src/tip/LangBarButton.cpp
     src/tip/Beep.cpp
+    src/tip/Clipboard.cpp
 )
 target_link_libraries(idealism_tip_core PUBLIC idealism_engine ole32 oleaut32 advapi32 user32 gdi32 uuid winmm)
 target_compile_options(idealism_tip_core PRIVATE /W4)

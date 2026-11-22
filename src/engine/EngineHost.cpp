@@ -58,7 +58,7 @@ void EngineHost::EnsureLoaded(const std::wstring& dataDir, const std::wstring& u
     try {
         auto dictionary = std::make_shared<Dictionary>(dataDir, userDir);
         dictionary->Reload();  // maps the packs (cheap) and reads the small user files
-        enterCommitsBopomofo_ = dictionary->Options().enterCommitsBopomofo;
+        ApplyOptions(dictionary->Options());
         if (dictionary->Loaded()) {
             dictionary_ = dictionary;
             lm_ = dictionary;
@@ -109,6 +109,15 @@ bool EngineHost::DictionaryLoaded() {
     return dictionaryLoaded_;
 }
 
+void EngineHost::ApplyOptions(const ImeOptions& options) {
+    enterCommitsBopomofo_ = options.enterCommitsBopomofo;
+    unsigned long long lo = 0, hi = 0;
+    for (size_t c = 0; c < 128; ++c)
+        if (options.ctrlSymbolsOff.test(c)) (c < 64 ? lo : hi) |= 1ull << (c % 64);
+    ctrlSymbolsOffLo_ = lo;
+    ctrlSymbolsOffHi_ = hi;
+}
+
 void EngineHost::RefreshAsync() {
     const unsigned long long now = GetTickCount64();
     if (now - lastRefreshTick_.load() < kRefreshIntervalMs) return;
@@ -142,7 +151,7 @@ void EngineHost::RunSync() {
     // Packs turned on/off and phrases edited in the settings app take effect here.
     if (dictionary) {
         dictionary->Reload();
-        enterCommitsBopomofo_ = dictionary->Options().enterCommitsBopomofo;
+        ApplyOptions(dictionary->Options());
     }
     if (learner) learner->Sync();
 }

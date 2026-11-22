@@ -35,6 +35,12 @@
 // Page 5: options
 #define IDC_OPT_HINT 1400
 #define IDC_OPT_ENTER_BOPOMOFO 1401
+#define IDC_OPT_CTRL_HINT 1402
+#define IDC_OPT_CTRL_SEARCH 1403
+#define IDC_OPT_CTRL_LIST 1404
+#define IDC_OPT_CTRL_ALL 1405
+#define IDC_OPT_CTRL_NONE 1406
+#define IDC_OPT_CTRL_DEFAULT 1407
 
 // Phrase dialog
 #define IDC_PH_VALUE 2001
